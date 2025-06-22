@@ -163,11 +163,15 @@ def create_excel_download(extracted_data_list):
     ]
     
     # Prepare data for DataFrame
+    # Prepare data for DataFrame
     df_data = []
     for extracted_data in extracted_data_list:
         row_data = {}
         for header in excel_headers:
-            row_data[header] = extracted_data.get(header, "N/A")
+            if header == "filename":
+                row_data[header] = extracted_data.get("filename", "N/A")
+            else:
+                row_data[header] = extracted_data.get(header, "N/A")
         df_data.append(row_data)
     
     # Create DataFrame
