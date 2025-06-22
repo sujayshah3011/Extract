@@ -154,7 +154,7 @@ def extract_electronic_copy_info(uploaded_file, gemini_key, llm_whisperer_key):
 def create_excel_download(extracted_data_list):
     """Create Excel file for download"""
     excel_headers = [
-        "exporters_business_name", "exporters_address", "exporters_country",
+        "filename", "exporters_business_name", "exporters_address", "exporters_country",
         "consignees_name", "consignees_address", "consignees_country", 
         "departure_date", "vessel_aircraft", "port_of_discharge",
         "marks_numbers_packaging", "number_type_packages", "description_goods",
