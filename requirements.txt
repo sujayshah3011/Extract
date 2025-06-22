@@ -1,5 +1,5 @@
 streamlit
 pandas
 google-generativeai
-unstract-llmwhisperer
+llmwhisperer-client
 openpyxl
