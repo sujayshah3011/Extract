@@ -28,6 +28,35 @@ def clean_extracted_value(value):
     
     return cleaned
 
+def are_names_similar(name1, name2):
+    """Check if two company names are similar (same entity)"""
+    if not name1 or not name2 or name1 == "N/A" or name2 == "N/A":
+        return False
+    
+    # Clean and normalize names for comparison
+    clean_name1 = re.sub(r'[^\w\s]', '', name1.lower()).strip()
+    clean_name2 = re.sub(r'[^\w\s]', '', name2.lower()).strip()
+    
+    # Remove common company suffixes for better comparison
+    suffixes = ['ltd', 'limited', 'inc', 'incorporated', 'corp', 'corporation', 'pvt', 'private', 'llc', 'co']
+    for suffix in suffixes:
+        clean_name1 = re.sub(rf'\b{suffix}\b', '', clean_name1).strip()
+        clean_name2 = re.sub(rf'\b{suffix}\b', '', clean_name2).strip()
+    
+    # Check if names are similar (exact match or one contains the other significantly)
+    if clean_name1 == clean_name2:
+        return True
+    
+    # Check if one is a significant substring of the other (at least 70% of the shorter name)
+    shorter_len = min(len(clean_name1), len(clean_name2))
+    if shorter_len > 0:
+        if clean_name1 in clean_name2 or clean_name2 in clean_name1:
+            overlap = len(clean_name1) if clean_name1 in clean_name2 else len(clean_name2)
+            if overlap / shorter_len >= 0.7:
+                return True
+    
+    return False
+
 def extract_electronic_copy_info(uploaded_file, gemini_key, llm_whisperer_key):
     """
     Extract specific information from Certificate of Origin PDF
@@ -78,27 +107,24 @@ def extract_electronic_copy_info(uploaded_file, gemini_key, llm_whisperer_key):
         Exporter's business name: [Extract the company name from section 1]
         Exporter's address: [Extract the full address from section 1, including plot/village/taluka/state/pincode]
         Exporter's country: [Extract the country from section 1]
-        Consignee's name: [Extract the company name from section 2]
-        Consignee's address: [Extract the full address from section 2]
-        Consignee's country: [Extract the country from section 2]
-        Departure date: [Extract from section 3, format as shown]
-        Vessel's name/Aircraft: [Extract vessel/aircraft details from section 3]
-        Port of discharge: [Extract port information from section 3]
+        Producer's business name: [Extract the company name from section 2 if it exists]
+        Producer's address: [Extract the full address from section 2 if it exists]
+        Producer's country: [Extract the country from section 2 if it exists]
+        Consignee's name: [Extract the company name from the consignee/importer section]
+        Consignee's address: [Extract the full address from the consignee/importer section]
+        Consignee's country: [Extract the country from the consignee/importer section]
         Marks and numbers on packaging: [Extract from column 6 in the table]
         Number and type of packages: [Extract package details from column 7]
         Description of goods: [Extract goods description from column 7, including HS code]
-        Origin criterion: [Extract from column 8, usually "WO" or similar]
         Gross weight or other quantity: [Extract weight/quantity from column 9]
         Value (FOB): [Extract FOB value from column 9]
-        Number and date of invoices: [Extract invoice details from column 10]
-        Exporting country: [Extract from section 11 declaration]
-        Importing country: [Extract from section 11 declaration]
 
         Instructions:
         - Extract only the actual values, not labels or descriptions
         - For addresses, include the complete address as one field
         - For goods description, include the full description with HS code
         - Be precise and do not add extra text
+        - If there are only 2 sections (Exporter and Consignee), mark Producer fields as "N/A"
         '''
 
         # Step 3: Get extraction using Gemini
@@ -111,21 +137,17 @@ def extract_electronic_copy_info(uploaded_file, gemini_key, llm_whisperer_key):
             "Exporter's business name": "exporters_business_name",
             "Exporter's address": "exporters_address", 
             "Exporter's country": "exporters_country",
+            "Producer's business name": "producers_business_name",
+            "Producer's address": "producers_address",
+            "Producer's country": "producers_country",
             "Consignee's name": "consignees_name",
             "Consignee's address": "consignees_address",
             "Consignee's country": "consignees_country",
-            "Departure date": "departure_date",
-            "Vessel's name/Aircraft": "vessel_aircraft",
-            "Port of discharge": "port_of_discharge",
             "Marks and numbers on packaging": "marks_numbers_packaging",
             "Number and type of packages": "number_type_packages",
             "Description of goods": "description_goods",
-            "Origin criterion": "origin_criterion",
             "Gross weight or other quantity": "gross_weight_quantity",
-            "Value (FOB)": "value_fob",
-            "Number and date of invoices": "invoice_number_date",
-            "Exporting country": "exporting_country",
-            "Importing country": "importing_country"
+            "Value (FOB)": "value_fob"
         }
 
         # Parse extracted text
@@ -136,6 +158,25 @@ def extract_electronic_copy_info(uploaded_file, gemini_key, llm_whisperer_key):
                 value = clean_extracted_value(value)
                 if key in field_mapping:
                     extracted_data[field_mapping[key]] = value
+
+        # Step 5: Handle the logic for Producer vs Consignee
+        exporter_name = extracted_data.get('exporters_business_name', 'N/A')
+        producer_name = extracted_data.get('producers_business_name', 'N/A')
+        
+        # If producer name is similar to exporter name, use the third section (original consignee) as final consignee
+        if producer_name != 'N/A' and are_names_similar(exporter_name, producer_name):
+            # Keep the original consignee data as is (it's already from section 3)
+            pass
+        elif producer_name != 'N/A' and not are_names_similar(exporter_name, producer_name):
+            # If producer is different from exporter, producer becomes consignee
+            extracted_data['consignees_name'] = producer_name
+            extracted_data['consignees_address'] = extracted_data.get('producers_address', 'N/A')
+            extracted_data['consignees_country'] = extracted_data.get('producers_country', 'N/A')
+
+        # Remove producer fields from final output as they're not needed in the Excel
+        extracted_data.pop('producers_business_name', None)
+        extracted_data.pop('producers_address', None)
+        extracted_data.pop('producers_country', None)
 
         # Clean up temporary file
         os.unlink(tmp_file_path)
@@ -156,13 +197,10 @@ def create_excel_download(extracted_data_list):
     excel_headers = [
         "filename", "exporters_business_name", "exporters_address", "exporters_country",
         "consignees_name", "consignees_address", "consignees_country", 
-        "departure_date", "vessel_aircraft", "port_of_discharge",
         "marks_numbers_packaging", "number_type_packages", "description_goods",
-        "origin_criterion", "gross_weight_quantity", "value_fob",
-        "invoice_number_date", "exporting_country", "importing_country"
+        "gross_weight_quantity", "value_fob"
     ]
     
-    # Prepare data for DataFrame
     # Prepare data for DataFrame
     df_data = []
     for extracted_data in extracted_data_list:
@@ -220,6 +258,11 @@ def main():
         
         **Supported document type:**
         - Certificate of Origin (ASEAN-INDIA FREE TRADE AREA PREFERENTIAL TARIFF)
+        
+        **Document Structure Handling:**
+        - Handles both 2-section and 3-section documents
+        - If Exporter and Producer are the same company, uses the third section as Consignee
+        - If Producer is different from Exporter, Producer becomes the Consignee
         """)
     
     # File upload section
@@ -291,11 +334,6 @@ def main():
                                 st.write(f"**Address:** {data.get('exporters_address', 'N/A')}")
                                 st.write(f"**Country:** {data.get('exporters_country', 'N/A')}")
                                 
-                                st.subheader("Shipment Details")
-                                st.write(f"**Departure Date:** {data.get('departure_date', 'N/A')}")
-                                st.write(f"**Vessel/Aircraft:** {data.get('vessel_aircraft', 'N/A')}")
-                                st.write(f"**Port of Discharge:** {data.get('port_of_discharge', 'N/A')}")
-                                
                                 st.subheader("Package Information")
                                 st.write(f"**Marks & Numbers:** {data.get('marks_numbers_packaging', 'N/A')}")
                                 st.write(f"**Package Type:** {data.get('number_type_packages', 'N/A')}")
@@ -308,14 +346,8 @@ def main():
                                 
                                 st.subheader("Goods Information")
                                 st.write(f"**Description:** {data.get('description_goods', 'N/A')}")
-                                st.write(f"**Origin Criterion:** {data.get('origin_criterion', 'N/A')}")
                                 st.write(f"**Gross Weight:** {data.get('gross_weight_quantity', 'N/A')}")
                                 st.write(f"**FOB Value:** {data.get('value_fob', 'N/A')}")
-                                
-                                st.subheader("Invoice & Trade")
-                                st.write(f"**Invoice Details:** {data.get('invoice_number_date', 'N/A')}")
-                                st.write(f"**Exporting Country:** {data.get('exporting_country', 'N/A')}")
-                                st.write(f"**Importing Country:** {data.get('importing_country', 'N/A')}")
                 
                 with tab2:
                     st.subheader("📥 Download Results")
