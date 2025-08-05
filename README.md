@@ -6,6 +6,9 @@ An intelligent web application that automatically extracts structured data from 
 
 **Access the app here:** [https://uhuadt8zwvabjt8yud3j36.streamlit.app](https://uhuadt8zwvabjt8yud3j36.streamlit.app)
 
+<img width="1434" height="844" alt="Screenshot 2025-08-05 at 10 14 49 PM" src="https://github.com/user-attachments/assets/08fd883f-21c5-4491-bb72-788f25ebd52f" />
+<img width="1436" height="843" alt="Screenshot 2025-08-05 at 10 15 05 PM" src="https://github.com/user-attachments/assets/c6abd334-a866-450e-a88d-09683c0d3595" />
+
 ## ✨ Features
 
 - **AI-Powered Extraction**: Uses Google Gemini and LLM Whisperer APIs for accurate data extraction
